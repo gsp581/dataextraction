@@ -145,15 +145,21 @@ def extract_section_content(soup):
     sections = {}
     headers = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5'])
 
-    for idx, tag in enumerate(headers):
-        text = tag.get_text(strip=True).strip(":")
-        if text in section_titles:
-            section_content = []
-            next_tag = tag.find_next_sibling()
-            while next_tag and next_tag.name not in ['h1', 'h2', 'h3', 'h4', 'h5']:
-                section_content.append(next_tag.get_text(separator=" ", strip=True))
-                next_tag = next_tag.find_next_sibling()
-            sections[text] = " ".join(section_content)
+    for tag in headers:
+        title = tag.get_text(strip=True).strip(":")
+        if title in section_titles:
+            # Walk up to a card-like container
+            parent = tag.find_parent(class_=re.compile(r'(card|panel|section|box|content)', re.IGNORECASE))
+            if not parent:
+                continue
+            # Remove non-visible tags
+            for junk in parent.find_all(['script', 'style', 'noscript']):
+                junk.decompose()
+            # Extract cleaned text
+            content = parent.get_text(separator="
+", strip=True)
+            if content:
+                sections[title] = content
 
     return sections
 
