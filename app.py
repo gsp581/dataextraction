@@ -127,66 +127,74 @@ if 'is_scraping' not in st.session_state:
 
 
 
+
 def extract_section_content(soup):
     import re
-    from bs4 import NavigableString
-
-    def clean_section_text(text):
-        lines = text.splitlines()
-        cleaned = []
-        for line in lines:
-            if not line.strip():
-                continue
-            if len(line.strip()) < 5:
-                continue
-            if re.search(r'[\{\};<>]|Browse All|Back|btn|Register Now|Agency Directory', line, re.IGNORECASE):
-                continue
-            cleaned.append(line.strip())
-        return "\\n".join(cleaned)
 
     sections = {}
-    seen_titles = set()
-
-    # --- CARD-BASED EXTRACTION ---
-    cards = soup.select(".card-header")
-    for header in cards:
-        title = header.get_text(strip=True)
-        body = header.find_next_sibling("div")
-        if body and "card-body" in body.get("class", []):
-            raw_content = body.get_text(separator="\\n", strip=True)
-            content = clean_section_text(raw_content)
-            if title and content:
-                sections[title] = content
-                seen_titles.add(title)
-
-    # --- TEXT-BASED FALLBACK EXTRACTION ---
-    target_sections = [
-        "Introduction",
-        "What you'll need?",
-        "How to get the service?",
-        "Who's eligible?",
-        "Payment / Charges",
-        "Need help?"
+    common_sections = [
+        "Introduction", "Who's eligible?", "What you'll need?",
+        "How to get the service?", "Payment / Charges", "Need help?"
     ]
 
-    text_elements = soup.find_all(text=True)
-    for i, text in enumerate(text_elements):
-        clean_text = text.strip()
-        if clean_text in target_sections and clean_text not in seen_titles:
-            section_title = clean_text
-            section_content = ""
-            for sibling in text_elements[i+1:]:
-                sibling_text = sibling.strip()
-                if sibling_text in target_sections:
+    # Step 1: Try extracting from known panel or section containers
+    panels = soup.find_all(class_=re.compile(r'panel|section|accordion'))
+
+    if not panels:
+        # Step 2: Fallback to headings and collect siblings
+        headers = soup.find_all(['h2', 'h3', 'h4', 'h5', 'div'], class_=re.compile(r'heading|title|header'))
+        for header in headers:
+            title = header.get_text(strip=True)
+            if not title:
+                continue
+            content = []
+            next_elem = header.find_next_sibling()
+            while next_elem and (
+                next_elem.name not in ['h2', 'h3', 'h4', 'h5'] or
+                'heading' not in " ".join(next_elem.get("class", []))
+            ):
+                content.append(next_elem.get_text(strip=True))
+                next_elem = next_elem.find_next_sibling()
+            if content:
+                sections[title] = '
+'.join(content)
+    else:
+        for panel in panels:
+            header = panel.find(class_=re.compile(r'heading|title|header'))
+            if not header:
+                continue
+            title = header.get_text(strip=True)
+            if not title:
+                continue
+            body = panel.find(class_=re.compile(r'body|content'))
+            if body:
+                items = body.find_all(['p', 'li', 'div'])
+                content = [item.get_text(strip=True) for item in items if item.get_text(strip=True)]
+                if content:
+                    sections[title] = '
+'.join(content)
+
+    # Step 3: Fuzzy extract from common names
+    for section_name in common_sections:
+        section = soup.find(string=re.compile(section_name, re.IGNORECASE))
+        if section:
+            parent = None
+            for parent_elem in section.parents:
+                if parent_elem.name in ['div', 'section'] and parent_elem.find_all(['li', 'p']):
+                    parent = parent_elem
                     break
-                if isinstance(sibling, NavigableString):
-                    section_content += sibling_text + " "
-            cleaned = clean_section_text(section_content)
-            if cleaned:
-                sections[section_title] = cleaned
-                seen_titles.add(section_title)
+            if parent:
+                content = []
+                for item in parent.find_all(['p', 'li']):
+                    text = item.get_text(strip=True)
+                    if text and text != section_name:
+                        content.append(text)
+                if content:
+                    sections[section_name] = '
+'.join(content)
 
     return sections
+
 
 
 
