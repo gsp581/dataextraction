@@ -148,17 +148,19 @@ def extract_section_content(soup):
     for tag in headers:
         title = tag.get_text(strip=True).strip(":")
         if title in section_titles:
-            # Walk up to a card-like container
             parent = tag.find_parent(class_=re.compile(r'(card|panel|section|box|content)', re.IGNORECASE))
             if not parent:
                 continue
-            # Remove non-visible tags
             for junk in parent.find_all(['script', 'style', 'noscript']):
                 junk.decompose()
-            # Extract cleaned text
             content = parent.get_text(separator="\n", strip=True)
-            if content:
-                sections[title] = content
+            lines = content.split("\n")
+            # Remove title repetition if it's the first line
+            if lines and lines[0].strip() == title:
+                lines = lines[1:]
+            final_content = "\n".join(lines).strip()
+            if final_content:
+                sections[title] = final_content
 
     return sections
 
