@@ -130,6 +130,8 @@ if 'is_scraping' not in st.session_state:
 
 
 def extract_section_content(soup):
+    import re
+
     section_titles = [
         "Introduction",
         "What you'll need?",
@@ -143,24 +145,31 @@ def extract_section_content(soup):
     ]
 
     sections = {}
-    headers = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5'])
 
-    for tag in headers:
+    for tag in soup.find_all("h5"):
         title = tag.get_text(strip=True).strip(":")
-        if title in section_titles:
-            parent = tag.find_parent(class_=re.compile(r'(card|panel|section|box|content)', re.IGNORECASE))
-            if not parent:
-                continue
-            for junk in parent.find_all(['script', 'style', 'noscript']):
-                junk.decompose()
-            content = parent.get_text(separator="\n", strip=True)
-            lines = content.split("\n")
-            # Remove title repetition if it's the first line
-            if lines and lines[0].strip() == title:
-                lines = lines[1:]
-            final_content = "\n".join(lines).strip()
-            if final_content:
-                sections[title] = final_content
+        if title not in section_titles:
+            continue
+
+        button = tag.find_parent("button")
+        if not button or not button.has_attr("data-target"):
+            continue
+
+        target_id = button["data-target"].strip("#")
+        content_div = soup.find("div", {"id": target_id})
+        if not content_div:
+            continue
+
+        for junk in content_div.find_all(["script", "style", "noscript"]):
+            junk.decompose()
+
+        raw_text = content_div.get_text(separator="\n", strip=True)
+        lines = raw_text.split("\n")
+        if lines and lines[0].strip() == title:
+            lines = lines[1:]
+        final_content = "\n".join(lines).strip()
+        if final_content:
+            sections[title] = final_content
 
     return sections
 
