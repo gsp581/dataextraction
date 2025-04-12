@@ -43,8 +43,16 @@ if os.path.exists(checkpoint_file):
         already_scraped = set(f.read().splitlines())
 
 st.set_page_config(page_title="Government Service Web Scraper", layout="wide")
-st.title("Government Service Web Scraper")
+st.title("Iystream Service Web Scraper")
+# Safely initialize session state variables
+if 'scraped_data' not in st.session_state:
+    st.session_state.scraped_data = []
 
+if 'url_data_map' not in st.session_state:
+    st.session_state.url_data_map = {}
+
+if 'is_scraping' not in st.session_state:
+    st.session_state.is_scraping = False
 # URL input
 st.subheader("URL Input")
 url_text = st.text_area("Enter URLs (one per line):", height=150, 
@@ -106,7 +114,15 @@ if 'scraped_data' not in st.session_state:
 
 if 'is_scraping' not in st.session_state:
     st.session_state.is_scraping = False
+# Safely initialize session state variables
+if 'scraped_data' not in st.session_state:
+    st.session_state.scraped_data = []
 
+if 'url_data_map' not in st.session_state:
+    st.session_state.url_data_map = {}
+
+if 'is_scraping' not in st.session_state:
+    st.session_state.is_scraping = False
 # Extract section content (specifically for government service pages)
 def extract_section_content(soup):
     sections = {}
