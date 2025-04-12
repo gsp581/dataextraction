@@ -189,8 +189,8 @@ def extract_section_content(soup):
                     if text and text != section_name:
                         content.append(text)
                 if content:
-                    sections[section_name] = "
-".join(content)
+                    sections[section_name] = "\\n".join(content)
+
 
     return sections
 
