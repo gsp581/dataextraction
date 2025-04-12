@@ -128,6 +128,7 @@ if 'is_scraping' not in st.session_state:
 
 
 
+
 def extract_section_content(soup):
     import re
 
@@ -156,8 +157,8 @@ def extract_section_content(soup):
                 content.append(next_elem.get_text(strip=True))
                 next_elem = next_elem.find_next_sibling()
             if content:
-                sections[title] = '
-'.join(content)
+                sections[title] = "
+".join(content)
     else:
         for panel in panels:
             header = panel.find(class_=re.compile(r'heading|title|header'))
@@ -171,8 +172,8 @@ def extract_section_content(soup):
                 items = body.find_all(['p', 'li', 'div'])
                 content = [item.get_text(strip=True) for item in items if item.get_text(strip=True)]
                 if content:
-                    sections[title] = '
-'.join(content)
+                    sections[title] = "
+".join(content)
 
     # Step 3: Fuzzy extract from common names
     for section_name in common_sections:
@@ -190,10 +191,11 @@ def extract_section_content(soup):
                     if text and text != section_name:
                         content.append(text)
                 if content:
-                    sections[section_name] = '
-'.join(content)
+                    sections[section_name] = "
+".join(content)
 
     return sections
+
 
 
 
