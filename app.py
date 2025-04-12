@@ -47,7 +47,7 @@ st.title("Iystream Service Web Scraper")
 # Safely initialize session state variables# URL input
 st.subheader("URL Input")
 url_text = st.text_area("Enter URLs (one per line):", height=150, 
-                        value="https://service.sarawak.gov.my/web/web/home/sla_view/211/545")
+                        value="https://service.sarawak.gov.my/web/web/home/sla_view/211/806")
 
 # Upload URLs from file option
 uploaded_file = st.file_uploader("Or upload a file with URLs (one URL per line)", type=["txt", "csv"])
