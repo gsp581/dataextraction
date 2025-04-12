@@ -142,8 +142,7 @@ def extract_section_content(soup):
             if re.search(r'[\{\};<>]|Browse All|Back|btn|Register Now|Agency Directory', line, re.IGNORECASE):
                 continue
             cleaned.append(line.strip())
-        return "
-".join(cleaned)
+        return ""\\n"".join(cleaned)
 
     sections = {}
     seen_titles = set()
