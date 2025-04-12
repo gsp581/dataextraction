@@ -5,6 +5,7 @@ import time
 import streamlit as st
 import re
 import json
+import io
 
 st.set_page_config(page_title="Government Service Web Scraper", layout="wide")
 st.title("Government Service Web Scraper")
@@ -13,6 +14,33 @@ st.title("Government Service Web Scraper")
 st.subheader("URL Input")
 url_text = st.text_area("Enter URLs (one per line):", height=150, 
                         value="https://service.sarawak.gov.my/web/web/home/sla_view/211/545")
+
+# Upload URLs from file option
+uploaded_file = st.file_uploader("Or upload a file with URLs (one URL per line)", type=["txt", "csv"])
+if uploaded_file is not None:
+    # Read the file based on type
+    if uploaded_file.name.endswith('.csv'):
+        try:
+            df = pd.read_csv(uploaded_file)
+            # Try to find a column that might contain URLs
+            url_col = None
+            for col in df.columns:
+                if col.lower() in ['url', 'link', 'website', 'address']:
+                    url_col = col
+                    break
+            
+            if url_col:
+                urls_from_file = df[url_col].tolist()
+                url_text = "\n".join([url for url in urls_from_file if isinstance(url, str) and url.strip()])
+            else:
+                # Just take the first column
+                urls_from_file = df.iloc[:, 0].tolist()
+                url_text = "\n".join([url for url in urls_from_file if isinstance(url, str) and url.strip()])
+        except Exception as e:
+            st.error(f"Error reading CSV file: {str(e)}")
+    else:
+        # Assume it's a text file
+        url_text = uploaded_file.getvalue().decode("utf-8")
 
 # Create columns for the advanced options
 with st.expander("Advanced Options"):
@@ -30,6 +58,12 @@ with st.expander("Advanced Options"):
         extract_links = st.checkbox("Count Links", value=True)
         extract_images = st.checkbox("Count Images", value=True)
         extract_sections = st.checkbox("Extract Section Content", value=True)
+
+    st.subheader("Excel Export Options")
+    excel_option = st.radio(
+        "How to organize Excel sheets:",
+        options=["One sheet per URL", "All URLs in one sheet"]
+    )
 
 # Setup for storing results
 if 'scraped_data' not in st.session_state:
@@ -117,9 +151,33 @@ def extract_section_content(soup):
     
     return sections
 
+# Function to clean URLs for sheet names
+def clean_url_for_sheet_name(url):
+    # Extract domain and path for a cleaner name
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    domain = parsed.netloc.split('.')
+    domain = domain[-2] if len(domain) > 1 else domain[0]  # Get the main domain name
+    
+    # Extract the last path segment if available
+    path = parsed.path.strip('/').split('/')
+    path = path[-1] if path and path[-1] else 'home'
+    
+    # Combine and clean the name
+    sheet_name = f"{domain}-{path}"
+    # Remove invalid Excel sheet name characters
+    sheet_name = re.sub(r'[\[\]:*?/\\]', '-', sheet_name)
+    # Ensure it's not too long (Excel has a 31 character limit)
+    if len(sheet_name) > 31:
+        sheet_name = sheet_name[:31]
+    
+    return sheet_name
+
 # Scraping function
 def scrape_urls(urls):
-    scraped_data = []
+    all_data = []  # List to hold all scraped data
+    url_data_map = {}  # Dictionary to map URLs to their scraped data
+    
     progress_text = st.empty()
     progress_bar = st.progress(0)
     log_container = st.container()
@@ -235,19 +293,25 @@ def scrape_urls(urls):
                         break
             
             data["Status"] = "completed"
-            scraped_data.append(data)
+            
+            # Store the data both in the list and in the URL map
+            all_data.append(data)
+            url_data_map[url] = data
             
             with log_container:
                 st.success(f"✓ Successfully scraped: {data['Title'] or url}")
         
         except Exception as e:
-            with log_container:
-                st.error(f"✗ Error scraping {url}: {str(e)}")
-            scraped_data.append({
+            error_data = {
                 "URL": url, 
                 "Title": "", 
                 "Status": f"Error: {str(e)}"
-            })
+            }
+            all_data.append(error_data)
+            url_data_map[url] = error_data
+            
+            with log_container:
+                st.error(f"✗ Error scraping {url}: {str(e)}")
         
         # Update progress
         progress_bar.progress((i+1)/len(urls))
@@ -256,7 +320,77 @@ def scrape_urls(urls):
         time.sleep(1)
     
     progress_text.text(f"Completed scraping {len(urls)} URLs")
-    return scraped_data
+    return all_data, url_data_map
+
+# Function to create Excel file with multiple sheets
+def create_excel_with_multiple_sheets(url_data_map):
+    output = io.BytesIO()
+    
+    try:
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Create a summary sheet first
+            summary_data = []
+            for url, data in url_data_map.items():
+                summary_row = {
+                    "URL": url,
+                    "Title": data.get("Title", ""),
+                    "Status": data.get("Status", ""),
+                    "H1 Count": data.get("H1 Count", ""),
+                    "Links": data.get("Links", ""),
+                    "Images": data.get("Images", ""),
+                    "Online Registration": data.get("Online Registration", ""),
+                    "Fee": data.get("Fee", "")
+                }
+                summary_data.append(summary_row)
+            
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name="Summary", index=False)
+            
+            # Create individual sheets for each URL
+            for url, data in url_data_map.items():
+                # Create a clean sheet name from the URL
+                sheet_name = clean_url_for_sheet_name(url)
+                
+                # Convert data to dataframe 
+                # For individual URL sheets, we'll use a transposed layout for better readability
+                if "All Sections" in data:
+                    # Remove the JSON-encoded sections data
+                    data_copy = data.copy()
+                    all_sections = data_copy.pop("All Sections")
+                    
+                    # First add the basic data
+                    items = list(data_copy.items())
+                    df = pd.DataFrame(items, columns=['Field', 'Value'])
+                    
+                    # Try to add section data as separate rows
+                    try:
+                        sections = json.loads(all_sections)
+                        for section_name, content in sections.items():
+                            items.append((f"Section: {section_name}", content))
+                    except:
+                        pass  # Just continue without the section data if it can't be parsed
+                    
+                    df = pd.DataFrame(items, columns=['Field', 'Value'])
+                else:
+                    # Just use the data directly if no sections
+                    items = list(data.items())
+                    df = pd.DataFrame(items, columns=['Field', 'Value'])
+                
+                # Write to excel
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                
+                # Adjust column widths
+                worksheet = writer.sheets[sheet_name]
+                worksheet.set_column(0, 0, 30)  # Field column
+                worksheet.set_column(1, 1, 100)  # Value column
+        
+        # Return the Excel file as bytes
+        output.seek(0)
+        return output.getvalue()
+    
+    except Exception as e:
+        st.error(f"Error creating Excel file: {str(e)}")
+        return None
 
 # Scrape button
 scrape_button = st.button("Start Scraping", disabled=st.session_state.is_scraping)
@@ -267,7 +401,7 @@ if scrape_button:
         st.error("No URLs provided. Please enter at least one URL.")
     else:
         st.session_state.is_scraping = True
-        st.session_state.scraped_data = scrape_urls(urls)
+        st.session_state.scraped_data, st.session_state.url_data_map = scrape_urls(urls)
         st.session_state.is_scraping = False
 
 # Display results if available
@@ -277,18 +411,32 @@ if st.session_state.scraped_data:
     # Create a DataFrame
     df = pd.DataFrame(st.session_state.scraped_data)
     
+    # Get a list of all unique column names across all URLs
+    all_columns = set()
+    for data in st.session_state.scraped_data:
+        all_columns.update(data.keys())
+    
     # Display sections in a more readable way if they exist
-    if "All Sections" in df.columns:
+    section_columns = [col for col in all_columns if col.startswith("Section:")]
+    if section_columns or "All Sections" in all_columns:
         st.write("### Key Sections Found:")
-        for idx, row in df.iterrows():
-            st.write(f"**URL: {row['URL']}**")
-            try:
-                sections = json.loads(row["All Sections"])
-                for section_name, content in sections.items():
-                    with st.expander(f"{section_name}"):
-                        st.write(content)
-            except:
-                st.write("Could not parse sections data")
+        for url, data in st.session_state.url_data_map.items():
+            st.write(f"**URL: {url}**")
+            
+            # Try to display sections if available
+            if "All Sections" in data:
+                try:
+                    sections = json.loads(data["All Sections"])
+                    for section_name, content in sections.items():
+                        with st.expander(f"{section_name}"):
+                            st.write(content)
+                except:
+                    # If we can't parse All Sections, try the individual section columns
+                    for col in section_columns:
+                        if col in data and data[col]:
+                            section_name = col.replace("Section: ", "")
+                            with st.expander(f"{section_name}"):
+                                st.write(data[col])
     
     # Display basic dataframe (excluding the All Sections column which is JSON)
     display_cols = [col for col in df.columns if col != "All Sections"]
@@ -309,38 +457,56 @@ if st.session_state.scraped_data:
         )
     
     with col2:
-        # For Excel we'll format it nicely
-        try:
-            buffer = pd.ExcelWriter('scraper_results.xlsx', engine='xlsxwriter')
-            df.to_excel(buffer, index=False, sheet_name='Scraped Data')
-            buffer.close()
-            
-            with open('scraper_results.xlsx', 'rb') as f:
-                excel_data = f.read()
-            
-            st.download_button(
-                "Download Excel",
-                excel_data,
-                "scraped_data.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key='download-excel'
-            )
-        except Exception as e:
-            st.error(f"Error creating Excel file: {str(e)}")
+        # For Excel, use the appropriate export method based on user choice
+        if excel_option == "One sheet per URL":
+            excel_data = create_excel_with_multiple_sheets(st.session_state.url_data_map)
+            if excel_data:
+                st.download_button(
+                    "Download Excel (Multiple Sheets)",
+                    excel_data,
+                    "scraped_data_multi_sheet.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key='download-excel-multi'
+                )
+        else:
+            # All in one sheet
+            try:
+                buffer = pd.ExcelWriter('scraper_results.xlsx', engine='xlsxwriter')
+                df.to_excel(buffer, index=False, sheet_name='All Data')
+                buffer.close()
+                
+                with open('scraper_results.xlsx', 'rb') as f:
+                    excel_data = f.read()
+                
+                st.download_button(
+                    "Download Excel (Single Sheet)",
+                    excel_data,
+                    "scraped_data.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key='download-excel-single'
+                )
+            except Exception as e:
+                st.error(f"Error creating Excel file: {str(e)}")
 
 # Add instructions at the bottom
 with st.expander("How to use this government service scraper"):
     st.markdown("""
     ### Instructions:
     
-    1. **Enter URLs** of government service pages (one URL per line)
+    1. **Enter URLs** of government service pages (one URL per line) OR upload a text/CSV file with URLs
     2. **Configure advanced options** if needed:
        - Adjust selectors for different page structures
-       - Choose what information to extract (meta tags, links, images, sections)
+       - Choose what information to extract
+       - Select Excel export format (one sheet per URL or all in one sheet)
     
     3. **Click 'Start Scraping'** to begin processing the URLs
     4. **Review the extracted data**, including section content that is expanded in the results
     5. **Download results** as CSV or Excel when complete
+    
+    ### Excel Export Options:
+    
+    - **One sheet per URL**: Creates a separate worksheet for each URL, with a summary sheet
+    - **All URLs in one sheet**: Places all data in a single worksheet
     
     ### This scraper specializes in:
     
