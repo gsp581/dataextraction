@@ -181,11 +181,11 @@ def extract_section_content(soup):
         section = soup.find(string=re.compile(section_name, re.IGNORECASE))
         if section:
             parent = None
-            for parent_elem in section.parents:
-                if parent_elem.name in ['div', 'section'] and parent_elem.find_all(['li', 'p']):
-                    parent = parent_elem
-                    break
-            
+               for parent_elem in section.parents:
+                if parent_elem.name in ['div', 'section'] and 'content' in parent_elem.get('class', []):
+                parent = parent_elem
+                break
+           
             if parent:
                 content = []
                 for item in parent.find_all(['p', 'li']):
