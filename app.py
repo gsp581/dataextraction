@@ -43,11 +43,28 @@ if os.path.exists(checkpoint_file):
         already_scraped = set(f.read().splitlines())
 
 st.set_page_config(page_title="Government Service Web Scraper", layout="wide")
+
+# Ensure session state variables are initialized
+if 'trigger_scraping' not in st.session_state:
+    st.session_state.trigger_scraping = False
+
+if 'current_index' not in st.session_state:
+    st.session_state.current_index = 0
+
+if 'scraped_data' not in st.session_state:
+    st.session_state.scraped_data = []
+
+if 'url_data_map' not in st.session_state:
+    st.session_state.url_data_map = {}
+
+if 'is_scraping' not in st.session_state:
+    st.session_state.is_scraping = False
+
 st.title("Iystream Service Web Scraper")
 # Safely initialize session state variables# URL input
 st.subheader("URL Input")
 url_text = st.text_area("Enter URLs (one per line):", height=150, 
-                        value="https://service.sarawak.gov.my/web/web/home/sla_view/211/806")
+                        value="https://service.sarawak.gov.my/web/web/home/sla_view/211/545")
 
 # Upload URLs from file option
 uploaded_file = st.file_uploader("Or upload a file with URLs (one URL per line)", type=["txt", "csv"])
@@ -118,7 +135,8 @@ def extract_section_content(soup):
         body = card.select_one(".card-body")
         if header and body:
             title = header.get_text(strip=True)
-            content = body.get_text(separator="", strip=True)
+            content = body.get_text(separator="
+", strip=True)
             if title and content:
                 sections[title] = content
 
