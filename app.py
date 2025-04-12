@@ -156,8 +156,7 @@ def extract_section_content(soup):
             for junk in parent.find_all(['script', 'style', 'noscript']):
                 junk.decompose()
             # Extract cleaned text
-            content = parent.get_text(separator="
-", strip=True)
+            content = parent.get_text(separator="\n", strip=True)
             if content:
                 sections[title] = content
 
