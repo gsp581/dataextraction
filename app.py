@@ -126,9 +126,24 @@ if 'is_scraping' not in st.session_state:
 
 
 
+
 def extract_section_content(soup):
     import re
     from bs4 import NavigableString
+
+    def clean_section_text(text):
+        lines = text.splitlines()
+        cleaned = []
+        for line in lines:
+            if not line.strip():
+                continue
+            if len(line.strip()) < 5:
+                continue
+            if re.search(r'[\{\};<>]|Browse All|Back|btn|Register Now|Agency Directory', line, re.IGNORECASE):
+                continue
+            cleaned.append(line.strip())
+        return "
+".join(cleaned)
 
     sections = {}
     seen_titles = set()
@@ -139,7 +154,9 @@ def extract_section_content(soup):
         title = header.get_text(strip=True)
         body = header.find_next_sibling("div")
         if body and "card-body" in body.get("class", []):
-            content = body.get_text(separator="\n", strip=True)
+            raw_content = body.get_text(separator="
+", strip=True)
+            content = clean_section_text(raw_content)
             if title and content:
                 sections[title] = content
                 seen_titles.add(title)
@@ -166,11 +183,13 @@ def extract_section_content(soup):
                     break
                 if isinstance(sibling, NavigableString):
                     section_content += sibling_text + " "
-            if section_content.strip():
-                sections[section_title] = section_content.strip()
+            cleaned = clean_section_text(section_content)
+            if cleaned:
+                sections[section_title] = cleaned
                 seen_titles.add(section_title)
 
     return sections
+
 
 
 
