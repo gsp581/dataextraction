@@ -1,11 +1,46 @@
+# Refactored Streamlit Web Scraper
+# - Added logging to file
+# - Retry logic for connection errors
+# - Resumable scraping from checkpoint
+# - Improved memory handling
+
+import os
+import time
+import json
+import re
+import io
+import logging
+import gc
+from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-import time
 import streamlit as st
-import re
-import json
-import io
+from urllib.parse import urlparse
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Logging setup
+log_filename = f"scraper_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+logging.basicConfig(
+    filename=log_filename,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+# HTTP Session with retry logic
+session = requests.Session()
+retries = Retry(total=3, backoff_factor=1, status_forcelist=[502, 503, 504, 429])
+adapter = HTTPAdapter(max_retries=retries)
+session.mount('http://', adapter)
+session.mount('https://', adapter)
+
+# Checkpoint system
+checkpoint_file = "scraped_urls.txt"
+already_scraped = set()
+if os.path.exists(checkpoint_file):
+    with open(checkpoint_file, "r") as f:
+        already_scraped = set(f.read().splitlines())
 
 st.set_page_config(page_title="Government Service Web Scraper", layout="wide")
 st.title("Government Service Web Scraper")
