@@ -43,8 +43,10 @@ if os.path.exists(checkpoint_file):
         already_scraped = set(f.read().splitlines())
 
 st.set_page_config(page_title="Government Service Web Scraper", layout="wide")
-st.title("Iystream Service Web Scraper")
-# Unified initialization of session state
+# Move session state setup immediately after set_page_config
+if not hasattr(st, 'session_state') or st.session_state is None:
+    st.stop()  # Prevent further execution until session is ready
+
 for key, default in {
     'scraped_data': [],
     'url_data_map': {},
@@ -53,6 +55,8 @@ for key, default in {
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
+
+st.title("Iystream Service Web Scraper")
 
 # Safely initialize session state variables# URL input
 st.subheader("URL Input")
