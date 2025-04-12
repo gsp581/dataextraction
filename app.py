@@ -130,67 +130,30 @@ if 'is_scraping' not in st.session_state:
 
 
 def extract_section_content(soup):
-    import re
-
-    sections = {}
-    common_sections = [
-        "Introduction", "Who's eligible?", "What you'll need?",
-        "How to get the service?", "Payment / Charges", "Need help?"
+    section_titles = [
+        "Introduction",
+        "What you'll need?",
+        "How to get the service?",
+        "Who's eligible?",
+        "Payment / Charges",
+        "Need help?",
+        "Things to keep in mind",
+        "Required Documents",
+        "Online Registration",
     ]
 
-    # Step 1: Try extracting from known panel or section containers
-    panels = soup.find_all(class_=re.compile(r'panel|section|accordion'))
+    sections = {}
+    headers = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5'])
 
-    if not panels:
-        # Step 2: Fallback to headings and collect siblings
-        headers = soup.find_all(['h2', 'h3', 'h4', 'h5', 'div'], class_=re.compile(r'heading|title|header'))
-        for header in headers:
-            title = header.get_text(strip=True)
-            if not title:
-                continue
-            content = []
-            next_elem = header.find_next_sibling()
-            while next_elem and (
-                next_elem.name not in ['h2', 'h3', 'h4', 'h5'] or
-                'heading' not in " ".join(next_elem.get("class", []))
-            ):
-                content.append(next_elem.get_text(strip=True))
-                next_elem = next_elem.find_next_sibling()
-            if content:
-               sections[title] = "\\n".join(content)
-    else:
-        for panel in panels:
-            header = panel.find(class_=re.compile(r'heading|title|header'))
-            if not header:
-                continue
-            title = header.get_text(strip=True)
-            if not title:
-                continue
-            body = panel.find(class_=re.compile(r'body|content'))
-            if body:
-                items = body.find_all(['p', 'li', 'div'])
-                content = [item.get_text(strip=True) for item in items if item.get_text(strip=True)]
-                if content:
-                   sections[title] = "\\n".join(content)
-
-    # Step 3: Fuzzy extract from common names
-    for section_name in common_sections:
-        section = soup.find(string=re.compile(section_name, re.IGNORECASE))
-        if section:
-            parent = None
-            for parent_elem in section.parents:
-                if parent_elem.name in ['div', 'section'] and parent_elem.find_all(['li', 'p']):
-                    parent = parent_elem
-                    break
-            if parent:
-                content = []
-                for item in parent.find_all(['p', 'li']):
-                    text = item.get_text(strip=True)
-                    if text and text != section_name:
-                        content.append(text)
-                if content:
-                    sections[section_name] = "\\n".join(content)
-
+    for idx, tag in enumerate(headers):
+        text = tag.get_text(strip=True).strip(":")
+        if text in section_titles:
+            section_content = []
+            next_tag = tag.find_next_sibling()
+            while next_tag and next_tag.name not in ['h1', 'h2', 'h3', 'h4', 'h5']:
+                section_content.append(next_tag.get_text(separator=" ", strip=True))
+                next_tag = next_tag.find_next_sibling()
+            sections[text] = " ".join(section_content)
 
     return sections
 
