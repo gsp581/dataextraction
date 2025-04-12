@@ -43,21 +43,7 @@ if os.path.exists(checkpoint_file):
         already_scraped = set(f.read().splitlines())
 
 st.set_page_config(page_title="Government Service Web Scraper", layout="wide")
-# Move session state setup immediately after set_page_config
-if not hasattr(st, 'session_state') or st.session_state is None:
-    st.stop()  # Prevent further execution until session is ready
-
-for key, default in {
-    'scraped_data': [],
-    'url_data_map': {},
-    'is_scraping': False,
-    'trigger_scraping': False
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = default
-
 st.title("Iystream Service Web Scraper")
-
 # Safely initialize session state variables# URL input
 st.subheader("URL Input")
 url_text = st.text_area("Enter URLs (one per line):", height=150, 
@@ -120,83 +106,26 @@ if 'scraped_data' not in st.session_state:
 if 'is_scraping' not in st.session_state:
     st.session_state.is_scraping = False
 # Safely initialize session state variables# Extract section content (specifically for government service pages)
+
+
 def extract_section_content(soup):
     sections = {}
-    
-    # Try to find all panels - common in government websites
-    panels = soup.find_all(class_=re.compile(r'panel|section|accordion'))
-    
-    if not panels:
-        # Try different approach for section identification
-        headers = soup.find_all(['h2', 'h3', 'h4', 'div'], class_=re.compile(r'heading|title|header'))
-        for header in headers:
+
+    # Standard government page card layout: .card-header + .card-body
+    cards = soup.select(".card")
+    for card in cards:
+        header = card.select_one(".card-header")
+        body = card.select_one(".card-body")
+        if header and body:
             title = header.get_text(strip=True)
-            if not title:
-                continue
-                
-            # Find the content following this header
-            content = []
-            next_elem = header.find_next_sibling()
-            
-            while next_elem and next_elem.name not in ['h2', 'h3', 'h4'] and not next_elem.has_attr('class') or \
-                  'heading' not in next_elem.get('class', []):
-                content.append(next_elem.get_text(strip=True))
-                next_elem = next_elem.find_next_sibling()
-            
-            if content:
-                sections[title] = '\n'.join(content)
-    else:
-        # Process each panel
-        for panel in panels:
-            # Find the heading/title
-            header = panel.find(class_=re.compile(r'heading|title|header'))
-            if not header:
-                continue
-                
-            title = header.get_text(strip=True)
-            if not title:
-                continue
-                
-            # Find the content/body
-            body = panel.find(class_=re.compile(r'body|content'))
-            if body:
-                # Get all text, preserving list items
-                content = []
-                for item in body.find_all(['p', 'li', 'div']):
-                    text = item.get_text(strip=True)
-                    if text:  # Only add non-empty text
-                        content.append(text)
-                
-                if content:
-                    sections[title] = '\n'.join(content)
-    
-    # Special handling for government service pages with specific sections
-    common_sections = [
-        "Introduction", "Who's eligible?", "What you'll need?", 
-        "How to get the service?", "Payment / Charges"
-    ]
-    
-    for section_name in common_sections:
-        # Try different selector variations
-        section = soup.find(string=re.compile(section_name, re.IGNORECASE))
-        if section:
-            parent = None
-               for parent_elem in section.parents:
-                if parent_elem.name in ['div', 'section'] and 'content' in parent_elem.get('class', []):
-                parent = parent_elem
-                break
-           
-            if parent:
-                content = []
-                for item in parent.find_all(['p', 'li']):
-                    text = item.get_text(strip=True)
-                    if text and text != section_name:
-                        content.append(text)
-                
-                if content:
-                    sections[section_name] = '\n'.join(content)
-    
+            content = body.get_text(separator="
+", strip=True)
+            if title and content:
+                sections[title] = content
+
     return sections
+
+
 
 # Function to clean URLs for sheet names
 def clean_url_for_sheet_name(url):
@@ -440,6 +369,16 @@ def create_excel_with_multiple_sheets(url_data_map):
         return None
 
 # Scrape button
+# Optional: Resume or Reset Progress
+col_resume, col_reset = st.columns(2)
+with col_resume:
+    if st.button("Resume Scraping"):
+        st.session_state.trigger_scraping = True
+with col_reset:
+    if st.button("Reset Progress"):
+        st.session_state.current_index = 0
+        st.success("Progress has been reset.")
+
 if st.button("Start Scraping"):
     st.session_state.trigger_scraping = True
 
@@ -449,7 +388,10 @@ if st.session_state.trigger_scraping:
         st.error("No URLs provided. Please enter at least one URL.")
     else:
         st.session_state.is_scraping = True
-        st.session_state.scraped_data, st.session_state.url_data_map = scrape_urls(urls)
+        for i in range(st.session_state.current_index, len(urls)):
+            url = urls[i]
+            st.session_state.current_index = i
+            st.session_state.scraped_data, st.session_state.url_data_map = scrape_urls([url])
         st.session_state.is_scraping = False
     st.session_state.trigger_scraping = False
 
