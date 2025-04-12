@@ -440,10 +440,12 @@ if st.session_state.trigger_scraping:
         st.error("No URLs provided. Please enter at least one URL.")
     else:
         st.session_state.is_scraping = True
-        for i in range(st.session_state.current_index, len(urls)):
-            url = urls[i]
-            st.session_state.current_index = i
-            st.session_state.scraped_data, st.session_state.url_data_map = scrape_urls([url])
+   for i in range(st.session_state.current_index, len(urls)):
+    url = urls[i]
+    st.session_state.current_index = i
+    new_data, new_map = scrape_urls([url])
+    st.session_state.scraped_data.extend(new_data)
+    st.session_state.url_data_map.update(new_map)
         st.session_state.is_scraping = False
     st.session_state.trigger_scraping = False
 
