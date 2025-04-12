@@ -153,8 +153,7 @@ def extract_section_content(soup):
         title = header.get_text(strip=True)
         body = header.find_next_sibling("div")
         if body and "card-body" in body.get("class", []):
-            raw_content = body.get_text(separator="
-", strip=True)
+            raw_content = body.get_text(separator="\\n", strip=True)
             content = clean_section_text(raw_content)
             if title and content:
                 sections[title] = content
