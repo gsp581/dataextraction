@@ -157,8 +157,7 @@ def extract_section_content(soup):
                 content.append(next_elem.get_text(strip=True))
                 next_elem = next_elem.find_next_sibling()
             if content:
-                sections[title] = "
-".join(content)
+               sections[title] = "\\n".join(content)
     else:
         for panel in panels:
             header = panel.find(class_=re.compile(r'heading|title|header'))
