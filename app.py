@@ -3,28 +3,33 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import time
 import streamlit as st
+import re
+import json
 
-st.set_page_config(page_title="Web Scraper MVP", layout="wide")
-st.title("Web Scraper MVP")
+st.set_page_config(page_title="Government Service Web Scraper", layout="wide")
+st.title("Government Service Web Scraper")
 
 # URL input
 st.subheader("URL Input")
-url_text = st.text_area("Enter URLs (one per line):", height=150)
+url_text = st.text_area("Enter URLs (one per line):", height=150, 
+                        value="https://service.sarawak.gov.my/web/web/home/sla_view/211/545")
 
-# Create columns for the selector inputs
-col1, col2 = st.columns(2)
-
-# Selector inputs
-with col1:
-    st.subheader("Data Selectors")
-    title_selector = st.text_input("Title Selector:", value="h1")
-    desc_selector = st.text_input("Description Selector:", value="meta[name='description']")
-
-with col2:
-    st.subheader("Additional Selectors")
-    price_selector = st.text_input("Price Selector:", value=".price")
-    custom_selector = st.text_input("Custom Selector:")
-    custom_name = st.text_input("Custom Field Name:", value="Custom Data")
+# Create columns for the advanced options
+with st.expander("Advanced Options"):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Basic Selectors")
+        title_selector = st.text_input("Title Selector:", value="title")
+        h1_selector = st.text_input("H1 Selector:", value="h1")
+        section_selector = st.text_input("Section Selector:", value=".panel-heading, .panel-body")
+    
+    with col2:
+        st.subheader("Additional Data")
+        extract_meta = st.checkbox("Extract Meta Tags", value=True)
+        extract_links = st.checkbox("Count Links", value=True)
+        extract_images = st.checkbox("Count Images", value=True)
+        extract_sections = st.checkbox("Extract Section Content", value=True)
 
 # Setup for storing results
 if 'scraped_data' not in st.session_state:
@@ -32,6 +37,85 @@ if 'scraped_data' not in st.session_state:
 
 if 'is_scraping' not in st.session_state:
     st.session_state.is_scraping = False
+
+# Extract section content (specifically for government service pages)
+def extract_section_content(soup):
+    sections = {}
+    
+    # Try to find all panels - common in government websites
+    panels = soup.find_all(class_=re.compile(r'panel|section|accordion'))
+    
+    if not panels:
+        # Try different approach for section identification
+        headers = soup.find_all(['h2', 'h3', 'h4', 'div'], class_=re.compile(r'heading|title|header'))
+        for header in headers:
+            title = header.get_text(strip=True)
+            if not title:
+                continue
+                
+            # Find the content following this header
+            content = []
+            next_elem = header.find_next_sibling()
+            
+            while next_elem and next_elem.name not in ['h2', 'h3', 'h4'] and not next_elem.has_attr('class') or \
+                  'heading' not in next_elem.get('class', []):
+                content.append(next_elem.get_text(strip=True))
+                next_elem = next_elem.find_next_sibling()
+            
+            if content:
+                sections[title] = '\n'.join(content)
+    else:
+        # Process each panel
+        for panel in panels:
+            # Find the heading/title
+            header = panel.find(class_=re.compile(r'heading|title|header'))
+            if not header:
+                continue
+                
+            title = header.get_text(strip=True)
+            if not title:
+                continue
+                
+            # Find the content/body
+            body = panel.find(class_=re.compile(r'body|content'))
+            if body:
+                # Get all text, preserving list items
+                content = []
+                for item in body.find_all(['p', 'li', 'div']):
+                    text = item.get_text(strip=True)
+                    if text:  # Only add non-empty text
+                        content.append(text)
+                
+                if content:
+                    sections[title] = '\n'.join(content)
+    
+    # Special handling for government service pages with specific sections
+    common_sections = [
+        "Introduction", "Who's eligible?", "What you'll need?", 
+        "How to get the service?", "Payment / Charges"
+    ]
+    
+    for section_name in common_sections:
+        # Try different selector variations
+        section = soup.find(string=re.compile(section_name, re.IGNORECASE))
+        if section:
+            parent = None
+            for parent_elem in section.parents:
+                if parent_elem.name in ['div', 'section'] and parent_elem.find_all(['li', 'p']):
+                    parent = parent_elem
+                    break
+            
+            if parent:
+                content = []
+                for item in parent.find_all(['p', 'li']):
+                    text = item.get_text(strip=True)
+                    if text and text != section_name:
+                        content.append(text)
+                
+                if content:
+                    sections[section_name] = '\n'.join(content)
+    
+    return sections
 
 # Scraping function
 def scrape_urls(urls):
@@ -51,7 +135,7 @@ def scrape_urls(urls):
             # Fetch and parse page
             response = requests.get(url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }, timeout=10)
+            }, timeout=15)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -62,49 +146,108 @@ def scrape_urls(urls):
             # Title
             title_elem = soup.select_one(title_selector)
             if title_elem:
-                if title_elem.name == "meta":
-                    data["Title"] = title_elem.get("content", "")
-                else:
-                    data["Title"] = title_elem.get_text(strip=True)
+                data["Title"] = title_elem.get_text(strip=True)
             else:
                 data["Title"] = ""
             
-            # Description
-            desc_elem = soup.select_one(desc_selector)
-            if desc_elem:
-                if desc_elem.name == "meta":
-                    data["Description"] = desc_elem.get("content", "")
-                else:
-                    data["Description"] = desc_elem.get_text(strip=True)
-            else:
-                data["Description"] = ""
+            # Count H1 tags
+            h1_count = len(soup.find_all('h1'))
+            data["H1 Count"] = h1_count
             
-            # Price
-            price_elem = soup.select_one(price_selector)
-            if price_elem:
-                data["Price"] = price_elem.get_text(strip=True)
-            else:
-                data["Price"] = ""
+            # Count links
+            if extract_links:
+                links_count = len(soup.find_all('a'))
+                data["Links"] = links_count
             
-            # Custom field
-            if custom_selector:
-                custom_elem = soup.select_one(custom_selector)
-                if custom_elem:
-                    if custom_elem.name == "meta":
-                        data[custom_name] = custom_elem.get("content", "")
-                    else:
-                        data[custom_name] = custom_elem.get_text(strip=True)
-                else:
-                    data[custom_name] = ""
+            # Count images
+            if extract_images:
+                images_count = len(soup.find_all('img'))
+                data["Images"] = images_count
             
+            # Extract meta tags
+            if extract_meta:
+                meta_keywords = soup.find('meta', attrs={'name': 'keywords'})
+                if meta_keywords:
+                    data["Meta Keywords"] = meta_keywords.get('content', '')
+                
+                meta_desc = soup.find('meta', attrs={'name': 'description'})
+                if meta_desc:
+                    data["Meta Description"] = meta_desc.get('content', '')
+            
+            # Extract section content for government services
+            if extract_sections:
+                sections = extract_section_content(soup)
+                
+                # Add sections as columns
+                for section_name, content in sections.items():
+                    column_name = f"Section: {section_name}"
+                    data[column_name] = content
+                
+                # Store full sections data as JSON
+                data["All Sections"] = json.dumps(sections)
+            
+            # Required documents
+            documents_list = []
+            for list_item in soup.find_all('li'):
+                text = list_item.get_text(strip=True)
+                if any(doc_word in text.lower() for doc_word in ['copy', 'document', 'certificate', 'id', 'passport']):
+                    documents_list.append(text)
+            
+            if documents_list:
+                data["Required Documents"] = "\n".join(documents_list)
+            
+            # Eligibility
+            eligibility_list = []
+            eligible_section = soup.find(string=re.compile("Who's eligible?", re.IGNORECASE))
+            if eligible_section:
+                for parent in eligible_section.parents:
+                    if parent.name in ['div', 'section']:
+                        for li in parent.find_all('li'):
+                            eligibility_list.append(li.get_text(strip=True))
+                        break
+            
+            if eligibility_list:
+                data["Eligibility Criteria"] = "\n".join(eligibility_list)
+            
+            # Check if registration is available online
+            online_indicators = ['register online', 'available online', 'online service', 'apply online']
+            data["Online Registration"] = "No"
+            for indicator in online_indicators:
+                if indicator in response.text.lower():
+                    data["Online Registration"] = "Yes"
+                    break
+            
+            # Costs/fees
+            payment_section = soup.find(string=re.compile("Payment|Charges|Fee", re.IGNORECASE))
+            if payment_section:
+                for parent in payment_section.parents:
+                    if parent.name in ['div', 'section']:
+                        fee_text = parent.get_text(strip=True)
+                        if "free" in fee_text.lower() or "no charge" in fee_text.lower():
+                            data["Fee"] = "Free"
+                        else:
+                            # Try to extract fee amount
+                            fee_match = re.search(r'RM\s*(\d+(?:\.\d+)?)', fee_text)
+                            if fee_match:
+                                data["Fee"] = f"RM {fee_match.group(1)}"
+                            else:
+                                data["Fee"] = fee_text
+                        break
+            
+            data["Status"] = "completed"
             scraped_data.append(data)
+            
             with log_container:
                 st.success(f"✓ Successfully scraped: {data['Title'] or url}")
         
         except Exception as e:
             with log_container:
                 st.error(f"✗ Error scraping {url}: {str(e)}")
-            scraped_data.append({"URL": url, "Title": "", "Description": "", "Price": "", "Error": str(e)})
+            scraped_data.append({
+                "URL": url, 
+                "Title": "", 
+                "Status": f"Error: {str(e)}"
+            })
         
         # Update progress
         progress_bar.progress((i+1)/len(urls))
@@ -130,13 +273,32 @@ if scrape_button:
 # Display results if available
 if st.session_state.scraped_data:
     st.subheader("Scraped Data")
+    
+    # Create a DataFrame
     df = pd.DataFrame(st.session_state.scraped_data)
-    st.dataframe(df)
+    
+    # Display sections in a more readable way if they exist
+    if "All Sections" in df.columns:
+        st.write("### Key Sections Found:")
+        for idx, row in df.iterrows():
+            st.write(f"**URL: {row['URL']}**")
+            try:
+                sections = json.loads(row["All Sections"])
+                for section_name, content in sections.items():
+                    with st.expander(f"{section_name}"):
+                        st.write(content)
+            except:
+                st.write("Could not parse sections data")
+    
+    # Display basic dataframe (excluding the All Sections column which is JSON)
+    display_cols = [col for col in df.columns if col != "All Sections"]
+    st.dataframe(df[display_cols])
     
     # Export options
     col1, col2 = st.columns(2)
     
     with col1:
+        # For CSV we'll include all data
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
             "Download CSV",
@@ -147,42 +309,50 @@ if st.session_state.scraped_data:
         )
     
     with col2:
-        buffer = pd.ExcelWriter('scraper_results.xlsx', engine='xlsxwriter')
-        df.to_excel(buffer, index=False, sheet_name='Scraped Data')
-        buffer.close()
-        
-        with open('scraper_results.xlsx', 'rb') as f:
-            excel_data = f.read()
-        
-        st.download_button(
-            "Download Excel",
-            excel_data,
-            "scraped_data.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key='download-excel'
-        )
+        # For Excel we'll format it nicely
+        try:
+            buffer = pd.ExcelWriter('scraper_results.xlsx', engine='xlsxwriter')
+            df.to_excel(buffer, index=False, sheet_name='Scraped Data')
+            buffer.close()
+            
+            with open('scraper_results.xlsx', 'rb') as f:
+                excel_data = f.read()
+            
+            st.download_button(
+                "Download Excel",
+                excel_data,
+                "scraped_data.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key='download-excel'
+            )
+        except Exception as e:
+            st.error(f"Error creating Excel file: {str(e)}")
 
 # Add instructions at the bottom
-with st.expander("How to use this scraper"):
+with st.expander("How to use this government service scraper"):
     st.markdown("""
     ### Instructions:
     
-    1. **Enter URLs** in the text area above (one URL per line)
-    2. **Configure selectors**:
-       - Title Selector: CSS selector for the page title (default: `h1`)
-       - Description Selector: CSS selector for descriptions (default: `meta[name='description']`)
-       - Price Selector: CSS selector for prices (default: `.price`)
-       - Custom Selector: Any additional element you want to capture
-       - Custom Field Name: The name to give this custom data in the results
+    1. **Enter URLs** of government service pages (one URL per line)
+    2. **Configure advanced options** if needed:
+       - Adjust selectors for different page structures
+       - Choose what information to extract (meta tags, links, images, sections)
     
     3. **Click 'Start Scraping'** to begin processing the URLs
-    4. **Download results** as CSV or Excel when complete
+    4. **Review the extracted data**, including section content that is expanded in the results
+    5. **Download results** as CSV or Excel when complete
     
-    ### Selector Examples:
+    ### This scraper specializes in:
     
-    - `h1` - First level heading
-    - `.product-price` - Element with class "product-price"
-    - `#main-content` - Element with ID "main-content"
-    - `div.description p` - Paragraph inside div with class "description"
-    - `meta[property='og:title']` - Meta tag with property "og:title"
+    - Extracting structured content from government service pages
+    - Identifying eligibility requirements
+    - Finding required documents
+    - Determining if online registration is available
+    - Capturing fee information
+    
+    ### Tips for better results:
+    
+    - For government service pages with different layouts, you may need to adjust the selectors
+    - The scraper attempts to identify common sections like "Introduction", "Eligibility", etc.
+    - More detailed data extraction may require customization for specific website structures
     """)
