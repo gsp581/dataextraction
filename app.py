@@ -118,8 +118,7 @@ def extract_section_content(soup):
         body = card.select_one(".card-body")
         if header and body:
             title = header.get_text(strip=True)
-            content = body.get_text(separator="
-", strip=True)
+            content = body.get_text(separator="", strip=True)
             if title and content:
                 sections[title] = content
 
