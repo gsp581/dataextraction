@@ -125,21 +125,54 @@ if 'is_scraping' not in st.session_state:
 # Safely initialize session state variables# Extract section content (specifically for government service pages)
 
 
-def extract_section_content(soup):
-    sections = {}
 
-    # Standard government page card layout: .card-header + .card-body
-    cards = soup.select(".card")
-    for card in cards:
-        header = card.select_one(".card-header")
-        body = card.select_one(".card-body")
-        if header and body:
-            title = header.get_text(strip=True)
-            content = body.get_text(separator="\n", strip=True)
+def extract_section_content(soup):
+    import re
+    from bs4 import NavigableString
+
+    sections = {}
+    seen_titles = set()
+
+    # --- CARD-BASED EXTRACTION ---
+    cards = soup.select(".card-header")
+    for header in cards:
+        title = header.get_text(strip=True)
+        body = header.find_next_sibling("div")
+        if body and "card-body" in body.get("class", []):
+            content = body.get_text(separator="
+", strip=True)
             if title and content:
                 sections[title] = content
+                seen_titles.add(title)
+
+    # --- TEXT-BASED FALLBACK EXTRACTION ---
+    target_sections = [
+        "Introduction",
+        "What you'll need?",
+        "How to get the service?",
+        "Who's eligible?",
+        "Payment / Charges",
+        "Need help?"
+    ]
+
+    text_elements = soup.find_all(text=True)
+    for i, text in enumerate(text_elements):
+        clean_text = text.strip()
+        if clean_text in target_sections and clean_text not in seen_titles:
+            section_title = clean_text
+            section_content = ""
+            for sibling in text_elements[i+1:]:
+                sibling_text = sibling.strip()
+                if sibling_text in target_sections:
+                    break
+                if isinstance(sibling, NavigableString):
+                    section_content += sibling_text + " "
+            if section_content.strip():
+                sections[section_title] = section_content.strip()
+                seen_titles.add(section_title)
 
     return sections
+
 
 
 
