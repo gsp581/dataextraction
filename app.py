@@ -171,8 +171,7 @@ def extract_section_content(soup):
                 items = body.find_all(['p', 'li', 'div'])
                 content = [item.get_text(strip=True) for item in items if item.get_text(strip=True)]
                 if content:
-                    sections[title] = "
-".join(content)
+                   sections[title] = "\\n".join(content)
 
     # Step 3: Fuzzy extract from common names
     for section_name in common_sections:
